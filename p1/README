@@ -1,0 +1,269 @@
+*********************************************************************
+		EE513 Project Assignment # 1
+		
+			Lee Eunkyu
+			 20173434
+														 
+		       2017. 04. 06
+*********************************************************************
+
+
+*********************************************************************
+			1. File List
+*********************************************************************
+- src
+	main.c			Initiating program
+	lb.c			Load balancer implementation
+	hd.c			Handler implementation
+	wk.c			Worker implementation
+	client.c		Client interface implementation
+	list.c			List function implementation
+	hash.c			Hash function implementation
+	tramsform.c		Data transformation function
+	test.c			Test file to give handle robust input
+
+- hdr
+	lb.h			Header file inclue entities' function
+	list.h			List function header file
+	hash.h			Hash function header file
+
+*********************************************************************
+			2. Installation
+*********************************************************************
+ At first, libevent package should be installed. It is done
+ by execute install.sh. Next, you can just type make to
+ create the excutable in bin/ and object files in src/build/
+ It needs root.
+
+ $ chmod +x install.sh
+ # ./install.sh
+ $ make
+
+ It may take some time.
+
+*********************************************************************
+			    3. Usage
+*********************************************************************
+ You can excute the binary in bin/ by following command.
+
+ $ ./bin/Project1
+
+ For, Client Line Interface (CLI), you should connect with
+ correspond port number of entity. Below is list of each CLI
+ port numbers.
+
+ LB 		 : 11111
+ HD 		 : 22222 ~ 22224 (HD1, HD2, HD3 respectively)
+ WK 		 : 33333 ~ 33337 (WK1, WK2, WK3, WK4, WK5 respectively)
+ Client 	 : 44444
+
+ For example, to connect Load balancer interface, type
+
+ $ telnet localhost 11111
+
+---------------------------------------------------------------------
+ Below are the example of each entity's CLI.
+
+ *NOTICE : Since handling exception is not implemented,
+	   wierd command could shout down the program.
+
+ - Client
+  $ telnet localhost 44444
+
+  > client > connect 127.0.0.1
+
+  > connect complete.
+
+  > client > set 1
+
+  > client #1 > put key value
+
+  > success.
+
+  > client #1 > get key
+
+  > value : value
+
+  > client #1 >
+
+ - Load balancer
+  $ telnet localhost 11111
+
+  > LB > list
+
+  > HD 1 / ....
+    HD 2 / ....
+    HD 3 / ....
+
+  > LB >
+
+ - Hanlder
+  $ telnet localhost 22223
+
+  > HD 2 > list
+
+  > WK 1 / .....
+    WK 1 / .....
+    WK 5 / .....
+
+  > HD 2 > show 2
+
+  > .....
+  > .....
+
+  > HD 2 >
+
+ - Worker
+  $ telnet localhost 33337
+
+  > WK 5 > list
+
+  > .....
+  > .....
+
+  > WK 5 > show key
+
+  > ..... / key / .....
+
+  > WK 5 >
+---------------------------------------------------------------------
+	
+*********************************************************************
+			     4. Design
+*********************************************************************
+A. Architecture Design
+  All entities in overall architecture are communicating
+  via TCP connection. Each components uses asynchronous
+  nonblocking I/O multiplexing to handle clients' request.
+  I applied event buffer callback in libevent package to
+  implement multiplexing more efficiently than select. Each
+  components have accept socket as following.
+
+  - LB : 5131
+  - HD : 35000 ~ 35002
+  - WK : 36000 ~ 36004
+
+  When packet is delivered, each entity writes the packet
+  in output buffer to send arrived packet. It is similar to
+  job of proxy or router. Each components are independent
+  processes which is created by main process.
+
+B. Load Balancer
+  - Main thread
+  Load balancer's main job is spreading the work load to
+  three different handlers. It uses Round-robin algorithm to
+  distribute the job and count the number of jobs how many
+  each handler handle the jobs. Load balancer remember this
+  information and can split out when CLI commands 'list'
+  operation.
+
+  - CLI thread
+  Load balancer has two kind of thread that one is main thread
+  and another is CLI thread which can handle client commands.
+  Load balancer CLI's interface socket is 11111 and the only
+  command that CLI can handle is 'list'. When 'list' command
+  is taken, CLI returns as follow.
+
+  HD 1 / IP Address:port / # of requests
+  HD 2 / IP Address:port / # of requests
+  HD 3 / IP Address:port / # of requests
+
+  As known, CLI also operates with libbufferevent.
+
+C. Handler
+  - Main thread
+  Handler's main job is distribute the job to five different
+  workers. It uses Jenkins Hash Function to calculate the hash
+  value according to each key. With calculated hash value,
+  handler divided it by number of workers, in this case 5, and
+  use remainder to dicide the worker. Handler remembers the list
+  which worker deals the corresponding hash value.
+
+  - CLI thread
+  Handler has also client interface to show the information that
+  handler is holding through the run time. It can support 'list'
+  and 'show' operation that display the hash values in all of the
+  workers or selected worker respectively. You can access the CLI
+  via port number 22222 ~ 22224. Below is example of 'list' command.
+
+  WK 1 / hash value
+  Wk 1 / hash value
+  Wk 2 / hash value
+  Wk 5 / hash value
+
+  When CLI gets 'show 5' as command, it displays the hashvalues of
+  keys which WK 5 is now holding.
+
+  hash value1
+  hash value2
+  hash value3
+	.
+	.
+
+  - Synchronizing thread
+  Handler has also synchronizing function between different handlers.
+  When handler receives the packet with command PUT or DEL, it notify
+  other handlers with calculated hash values and corresponding worker
+  ID. Handler communicating accept socket port is following.
+
+  HD 1 : 55501
+  HD 2 : 55502
+  HD 3 : 55503
+
+  When the hashvalue is come, it calculates the value is already exist
+  or not. Then it dicide the job by messages command. Therefore,
+  handlers can be synchronized every packet is received among three
+  handlers.
+
+D. Worker
+  - Main thread
+  Workers main thread is storing the value of key and corresponding
+  values in their data structure. Workers use hash table to store the
+  data which can show better performance than linked list. When the
+  message comes in, worker try to do a job in message and create a
+  message to send back. In created message, successness of job is
+  given.
+
+  - CLI thread
+  Worker has also client interface that can handle 'list' and 'show'
+  command. The user can access the CLI through 33333~33337 port. When
+  'list' command is given, the example of result is like following.
+
+  hash value1 / key2 / value1
+  hash value2 / key2 / value2
+		.
+		.
+
+  When 'show key1' command is given, the result is following.
+
+  hash value1 / key1 / value1
+
+E. Client
+  - Main thread
+  Client's main thread is interface. Client's interface uses 44444 port.
+  When the user enter the command, it makes correspond message and send
+  it to the load balancer connected socket. When the result message
+  comes back, it parses the message and give the result of job to
+  the user.
+
+F. List Design
+  In Handler, the information of pair of workder ID and hash values in
+  correspond worker is stored as linked list. It has function of search,
+  put new pairs, and delete pairs. Each time the message is arrived or
+  synchronizing message comes, it uses search function to support either
+  PUT or DEL.
+
+G. Hash Table Design
+  In Worker, the key-value pair is stored in hash table data structure.
+  It supports search, add, get, and del function.
+
+*********************************************************************
+				5. LOG
+*********************************************************************
+  Log file of each entity is stored during running time. It is stored in
+  same directory where the binary is in. The name of log file has convention
+  that ***_1~5.log. For instance, Loardbalancer.log or worker_3.log.
+  In the log file, there are server local time that message is received
+  and information in message header. Every time excute the program, log
+  information keeps writing continuosly. When make clean the binary,
+  and objectives, logs also removed.
