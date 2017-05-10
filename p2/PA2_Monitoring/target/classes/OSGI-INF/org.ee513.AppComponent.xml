@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<scr:component xmlns:scr="http://www.osgi.org/xmlns/scr/v1.1.0" immediate="true" name="org.ee513.AppComponent" activate="activate" deactivate="deactivate">
+    <implementation class="org.ee513.AppComponent"/>
+    <service servicefactory="false">
+        <provide interface="org.ee513.AppComponent"/>
+    </service>
+    <property name="service.pid" value="org.ee513.AppComponent"/>
+    <reference name="flowRuleService" interface="org.onosproject.net.flow.FlowRuleService" cardinality="1..1" policy="static" bind="bindFlowRuleService" unbind="unbindFlowRuleService"/>
+    <reference name="topologyService" interface="org.onosproject.net.topology.TopologyService" cardinality="1..1" policy="static" bind="bindTopologyService" unbind="unbindTopologyService"/>
+    <reference name="linkService" interface="org.onosproject.net.link.LinkService" cardinality="1..1" policy="static" bind="bindLinkService" unbind="unbindLinkService"/>
+    <reference name="hostservice" interface="org.onosproject.net.host.HostService" cardinality="1..1" policy="static" bind="bindHostservice" unbind="unbindHostservice"/>
+</scr:component>
