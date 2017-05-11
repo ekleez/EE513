@@ -1,0 +1,84 @@
+*********************************************************************
+		EE513 Project Assignment # 2
+		
+			Lee Eunkyu
+			 20173434
+														 
+		       2017. 05. 11
+*********************************************************************
+
+
+*********************************************************************
+			1. File List
+*********************************************************************
+firewall
+  - firewall/src/main/java/org/ee513/AppComponent.java
+
+redirection
+  - redirection/src/main/java/org/ee513/AppComponent.java
+
+monitoring
+  - monitoring/src/main/java/org/ee513/AppComponent.java
+
+*********************************************************************
+			2. Installation
+*********************************************************************
+
+Move directory what you want to install, and type maven install.
+
+$ cd firewall
+$ mvn clean install -Dmaven.test.skip=true -Dcheckstyle.skip
+
+*********************************************************************
+			   3. Design
+*********************************************************************
+
+A. Stateful Firewall
+
+  Allow all FTP communications for both ACTIVE and PASSIVE modes.
+  It blocks any communication except for FTP related traffic.
+  When legitimate client try to set FTP communication via 21 port,
+  ONOS application direct the ONOS to pass the packet through the
+  switch, otherwise to give the flow rule to drop the packet. After
+  session creating, application also handle both PASSIVE and ACTIVE
+  mode.
+
+  For ACTIVE mode,
+
+  before the client creates the data connection, it notifies the server
+  the port that will be used later. The control message always contains
+  'PORT' keyword that can be parsed by ONOS application as well server
+  does. After getting port number, firewall also makes the flow rule
+  that directs the switch to allow the packet passing through correspond
+  port. It will give drop rule except control path (port 21) and data
+  path (port selected) definitely.
+
+  For PASSIVE mode,
+
+  before the client creates the data connection, the server notifies
+  the port that will be used later. The control message wlays contains
+  'Entering passive mode' keyword that can be parsed by ONOS application
+  as well server does. After getting port number, firewall also makes the
+  flow rule that directs the switch to allow the packet passing through
+  correspond port. It will give drop rule except control path (port 21)
+  and data path (port selected) definitely.
+
+B. Redirection
+
+  TCP session destinating h2 server, will be redirected to h3.
+  For instance, h1 tries to send packets to h2, the packets would be
+  automatically redirected to h3.
+  It uses FLOW_MOD to control the flow. It examines the IP DST and IP SRC
+  to check redirection is needed and if it needs, it will give modified
+  flow rules to redirect the packet. It could be done by set the treatment
+  in ONOS terms. Surely, when the reply packet is turned back, the source
+  IP address is changed from h3 to h2 automatically by modifying the flow
+  rules.
+
+C. Monitoring
+
+  Detect the flow rule whose byte per second is greater than 10Mbytes/s
+  Print the flow rule, the sender of the flow rule, and the bytes sended
+  on ONOS log. It uses FLOW_STATISTICS implemented naturally. Because flow
+  entry stores the bytes of the flowed packet, the monitoring thread checks
+  the bytes every one second.
