@@ -23,7 +23,20 @@ enum rule_protocol{
   RULE_HTTP
 };
 
+enum rule_act{
+  MSG,
+  TOS,
+  LEN,
+  OFFSET,
+  SEQ,
+  ACK,
+  FLAGS,
+  HTTP
+};
+
 struct rule_st *rule_match (int, const u_char *);
 void handle_tcp (const u_char *);
 void handle_udp (const u_char *);
 bool is_inside (const struct in_addr *, const struct in_addr *, int);
+void print_matched (struct rule_st *, const u_char *, int, int);
+void print_unmatched (struct rule_st *, const u_char *, int);

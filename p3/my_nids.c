@@ -87,8 +87,10 @@ struct rule_st *rule_match (int proto_type, const u_char *packet){
 
     for (current = list_head; current != NULL; current = current->next){
 
-      if (strcmp (current->protocol, "tcp"))
-	continue;
+      if (strcmp (current->protocol, "tcp")){
+	if (strcmp (current->protocol, "http"))
+	  continue;
+      }
      
       // Check Source IP Address
       if (strcmp (current->src_addr, "any")){
@@ -294,21 +296,259 @@ struct rule_st *rule_match (int proto_type, const u_char *packet){
     if (current != NULL){
 
 
+      // HTTP
+      if (!strcmp(current->protocol,"http")){
+	// SubParsing
+	int temp;
+	char *find = strchr (current->rule, ':') + 1;
+	char *find2 = strchr (current->rule, ';');
+	temp = find2 - find - 1;
+
+	char http_req[temp];
+	strncpy (http_req, find+1, temp - 1);
+	http_req[temp - 1] = '\0';
+	printf ("temp: %d %s \n",temp,http_req);
+
+	find = strchr (find2, ':') + 1;
+	find2 = strchr (find, ';');
+	temp = find2 - find - 1;
+
+	char http_con[temp];
+	strncpy (http_con, find+1, temp -1);
+	http_con[temp-1] = '\0';
+	printf ("temp: %d %s \n",temp, http_con);
+
+	find = strchr (find2, ':') + 1;
+	find2 = strchr (find, ';');
+	temp = find2 - find - 1;
+
+	char http_msg[temp];
+	strncpy (http_msg, find+1, temp -1);
+	http_msg[temp-1] = '\0';
+	printf ("temp: %d %s \n",temp, http_msg);
+	
+
+	int how = tcph->th_off * 4;
+	char *http = (char *)(tcph + how);
+
+
+
+
+      }
+      // TCP
+      else{
+
+	int len = strchr (current->rule,':') - current->rule;
+	char parsed[len +1];
+	int total_len = strlen (current->rule);
+	int len2 = total_len - len;
+	char parsed2[len2+1];
+	strncpy (parsed2, current->rule+ len+1,len2);
+	strncpy (parsed, current->rule, len);
+	parsed2[len2] = '\0';
+	parsed[len] = '\0';
+	
+	// msg
+	if (!strcmp(parsed, "msg")){
+	  char *message = parsed2 + 1;
+	  *(message+strlen(message)-1) = '\0';
+	  print_matched (current, packet, RULE_TCP,MSG);
+	  printf ("Message: %s\n",message);
+	}
+	// tos
+	else if (!strcmp (parsed, "tos")){
+	  int tos = atoi (parsed2);
+	  if (iph->ip_tos == tos)
+	    print_matched (current, packet, RULE_TCP,TOS);
+	  else
+	    print_unmatched (current, packet, RULE_TCP);
+	}
+	// len
+	else if (!strcmp (parsed, "len")){
+	  int len = atoi (parsed2);
+	  if (iph->ip_hl == len)
+	    print_matched (current, packet, RULE_TCP,LEN);
+	  else
+	    print_unmatched (current, packet, RULE_TCP);
+	}
+	// offset
+	else if (!strcmp (parsed, "offset")){
+	  int offset = atoi (parsed2);
+	  if (iph->ip_off == offset)
+	    print_matched (current, packet, RULE_TCP,OFFSET);
+	  else
+	    print_unmatched (current, packet, RULE_TCP);
+	}
+	// seq
+	else if (!strcmp (parsed, "seq")){
+	  int seq = atoi (parsed2);
+	  if (tcph->th_seq == seq)
+	    print_matched (current, packet, RULE_TCP, SEQ);
+	  else
+	    print_unmatched (current, packet, RULE_TCP);
+	}
+	// ack
+	else if (!strcmp (parsed, "ack")){
+	  int ack = atoi (parsed2);
+	  if (tcph->th_ack == ack)
+	    print_matched (current, packet, RULE_TCP, ACK);
+	  else
+	    print_unmatched (current, packet, RULE_TCP);
+	}
+	// flags
+	else if (!strcmp (parsed, "flags")){
+	  int flags = atoi (parsed2);
+	  // Flag numbering
+	  if (tcph->th_flags == flags)
+	    print_matched (current, packet, RULE_TCP, FLAGS);
+	  else
+	    print_unmatched (current, packet, RULE_TCP);
+	}
+
+      }
+    
+      // Print Done!
+      
     }
     // Not Match
     else{
-
-
-
+      print_unmatched (current, packet, RULE_TCP);
     }
     
   }
   else if (proto_type == RULE_UDP){
     udph = (struct udphdr *)(packet + iph->ip_hl*4);
 
-  }
-  else{
+    for (current = list_head; current != NULL; current = current->next){
 
+      if (strcmp (current->protocol, "udp"))
+	continue;
+     
+      // Check Source IP Address
+      if (strcmp (current->src_addr, "any")){
+	char *pch = strchr (current->src_addr, '/');
+	// Prefix
+	if (pch != NULL){
+
+	  int len = pch - current->src_addr;
+	  char net[len];
+	  strncpy (net, current->src_addr, len);
+	  char *pref = pch + 1;
+	  int prefix = atoi (pref);
+
+	  struct in_addr *ip_addr, *net_addr;
+	  ip_addr = (struct in_addr *)malloc (sizeof (struct in_addr));
+	  net_addr = (struct in_addr *)malloc (sizeof (struct in_addr));
+	  inet_aton (src_addr, ip_addr);
+	  inet_aton (net, net_addr);
+
+	  if (!is_inside (ip_addr, net_addr, prefix)){
+	    free (ip_addr);
+	    free (net_addr);
+	    continue;
+	  }
+
+	  free (ip_addr);
+	  free (net_addr);
+
+	}
+	// No Prefix
+	else{
+	  if (strcmp (current->src_addr, src_addr))
+	    continue;
+	}
+      }
+      
+      // Check Destination IP Address
+      if (strcmp (current->dst_addr, "any")){
+	char *pch = strchr (current->dst_addr, '/');
+	// Prefix
+	if (pch != NULL){
+
+	  int len = pch - current->dst_addr;
+	  char net[len];
+	  strncpy (net, current->dst_addr, len);
+	  char *pref = pch + 1;
+	  int prefix = atoi (pref);
+
+	  struct in_addr *ip_addr, *net_addr;
+	  ip_addr = (struct in_addr *)malloc (sizeof (struct in_addr));
+	  net_addr = (struct in_addr *)malloc (sizeof (struct in_addr));
+	  inet_aton (dst_addr, ip_addr);
+	  inet_aton (net, net_addr);
+
+	  if (!is_inside (ip_addr, net_addr, prefix)){
+	    free (ip_addr);
+	    free (net_addr);
+	    continue;
+	  }
+
+	  free (ip_addr);
+	  free (net_addr);
+	}
+	// No Prefix
+	else{
+	  if (strcmp (current->dst_addr, dst_addr))
+	    continue;
+	}
+      }
+      // Matched Occur !!
+      break;
+    }
+    // Matched
+    if (current != NULL){
+/*
+	int len = strchr (current->rule,':') - current->rule;
+	char parsed[len +1];
+	int total_len = strlen (current->rule);
+	int len2 = total_len - len;
+	char parsed2[len2+1];
+	strncpy (parsed2, current->rule+ len+1,len2);
+	strncpy (parsed, current->rule, len);
+	parsed2[len2] = '\0';
+	parsed[len] = '\0';
+	
+	// msg
+	if (!strcmp(parsed, "msg")){
+	  char *message = parsed2 + 1;
+	  *(message+strlen(message)-1) = '\0';
+	  print_matched (current, packet, RULE_UDP,MSG);
+	  printf ("Message: %s\n",message);
+	}
+	// tos
+	else if (!strcmp (parsed, "tos")){
+	  int tos = atoi (parsed2);
+	  if (iph->ip_tos == tos)
+	    print_matched (current, packet, RULE_UDP,TOS);
+	  else
+	    print_unmatched (current, packet, RULE_UDP);
+	}
+	// len
+	else if (!strcmp (parsed, "len")){
+	  int len = atoi (parsed2);
+	  if (iph->ip_hl == len)
+	    print_matched (current, packet, RULE_UDP,LEN);
+	  else
+	    print_unmatched (current, packet, RULE_UDP);
+	}
+	// offset
+	else if (!strcmp (parsed, "offset")){
+	  int offset = atoi (parsed2);
+	  if (iph->ip_off == offset)
+	    print_matched (current, packet, RULE_UDP,OFFSET);
+	  else
+	    print_unmatched (current, packet, RULE_UDP);
+	}
+*/
+    }
+    // Not matched
+    else{
+ //     print_unmatched (current, packet, RULE_UDP);
+    }
+  }
+  // Not TCP and Not UDP
+  else{
+    
   }
 
 }
@@ -316,6 +556,83 @@ struct rule_st *rule_match (int proto_type, const u_char *packet){
 bool is_inside (const struct in_addr *addr, const struct in_addr *net, int bits){
   return !((addr->s_addr ^ net->s_addr) & htonl (0xFFFFFFFFu << (32 - bits)));
 }
+
+void print_matched (struct rule_st *entry, const u_char *packet, int proto_type, int type){
+
+  struct ip *iph = (struct ip *)packet;
+  struct tcphdr *tcph;
+  struct udphdr *udph;
+  if (proto_type == RULE_UDP)
+    udph = (struct udphdr *)(packet + iph->ip_hl*4);
+  else
+    tcph = (struct tcphdr *)(packet + iph->ip_hl*4);
+
+  printf ("Rule: %s\n",entry->original);
+  printf ("====================\n");
+  printf ("[IP header]\n");
+  printf ("Version: %d\n",iph->ip_v);
+  printf ("Header Length: %d bytes\n",iph->ip_hl);
+  printf ("ToS: %d\n",iph->ip_tos);
+  printf ("Fragment Offset: %d\n",iph->ip_off);
+  printf ("Source: %s\n",inet_ntoa(iph->ip_src));
+  printf ("Destination: %s\n",inet_ntoa(iph->ip_dst));
+  printf ("\n");
+  if (proto_type == RULE_UDP){
+    printf ("[UDP header]\n");
+    printf ("Source Port: %d\n",udph->uh_sport);
+    printf ("Destination Port: %d\n",udph->uh_dport);
+  }
+  else{
+    printf ("[TCP header]\n");
+    printf ("Source Port: %d\n",ntohs(tcph->th_sport));
+    printf ("Destination Port: %d\n",ntohs(tcph->th_dport));
+    printf ("Sequence Number: %d\n",tcph->th_seq);
+    printf ("Acknowledgement Number: %d\n",tcph->th_ack);
+    printf ("Flags: ");
+    printf ("\n");
+    printf ("[TCP payload]\n");
+  }
+  printf ("====================\n");
+}
+
+void print_unmatched (struct rule_st *entry, const u_char *packet, int proto_type){
+
+  struct ip *iph = (struct ip *)packet;
+  struct tcphdr *tcph;
+  struct udphdr *udph;
+  if (proto_type == RULE_UDP)
+    udph = (struct udphdr *)(packet + iph->ip_hl*4);
+  else
+    tcph = (struct tcphdr *)(packet + iph->ip_hl*4);
+
+  printf ("Rule: %s\n",entry->original);
+  printf ("====================\n");
+  printf ("[IP header]\n");
+  printf ("Version: %d\n",iph->ip_v);
+  printf ("Header Length: %d bytes\n",iph->ip_hl);
+  printf ("ToS: %d\n",iph->ip_tos);
+  printf ("Fragment Offset: %d\n",iph->ip_off);
+  printf ("Source: %s\n",inet_ntoa(iph->ip_src));
+  printf ("Destination: %s\n",inet_ntoa(iph->ip_dst));
+  printf ("\n");
+  if (proto_type == RULE_UDP){
+    printf ("[UDP header]\n");
+    printf ("Source Port: %d\n",udph->uh_sport);
+    printf ("Destination Port: %d\n",udph->uh_dport);
+  }
+  else{
+    printf ("[TCP header]\n");
+    printf ("Source Port: %d\n",ntohs(tcph->th_sport));
+    printf ("Destination Port: %d\n",ntohs(tcph->th_dport));
+    printf ("Sequence Number: %d\n",tcph->th_seq);
+    printf ("Acknowledgement Number: %d\n",tcph->th_ack);
+    printf ("Flags: ");
+    printf ("\n");
+    printf ("[TCP payload]\n");
+  }
+  printf ("====================\n");
+}
+
 
 int main(int argc, char **argv){
 
