@@ -80,6 +80,9 @@ struct rule_st *rule_match (int proto_type, const u_char *packet){
   char *src_addr = inet_ntoa (iph->ip_src);
   char *dst_addr = inet_ntoa (iph->ip_dst);
 
+  struct rule_st *matched_head = NULL;
+  struct rule_st *matched_tail = NULL;
+
   struct rule_st *current;
 
   if (proto_type == RULE_TCP){
@@ -289,13 +292,20 @@ struct rule_st *rule_match (int proto_type, const u_char *packet){
       }
     
       // Matched Occur!
-      break;
+    
+      if (matched_head == NULL){
+        matched_head = current;
+	matched_tail = current;
+      }else{
+	matched_tail->matched_next = current;
+	matched_tail = current;
+      }
+
     }
 
-    // Match
-    if (current != NULL){
-
-
+    current = NULL;
+    for (current = matched_head; current != NULL; current = current->matched_next){
+      //printf ("rule : %s\n",current->original);
       // HTTP
       if (!strcmp(current->protocol,"http")){
 	// SubParsing
@@ -307,7 +317,6 @@ struct rule_st *rule_match (int proto_type, const u_char *packet){
 	char http_req[temp];
 	strncpy (http_req, find+1, temp - 1);
 	http_req[temp - 1] = '\0';
-	printf ("temp: %d %s \n",temp,http_req);
 
 	find = strchr (find2, ':') + 1;
 	find2 = strchr (find, ';');
@@ -316,7 +325,6 @@ struct rule_st *rule_match (int proto_type, const u_char *packet){
 	char http_con[temp];
 	strncpy (http_con, find+1, temp -1);
 	http_con[temp-1] = '\0';
-	printf ("temp: %d %s \n",temp, http_con);
 
 	find = strchr (find2, ':') + 1;
 	find2 = strchr (find, ';');
@@ -325,13 +333,21 @@ struct rule_st *rule_match (int proto_type, const u_char *packet){
 	char http_msg[temp];
 	strncpy (http_msg, find+1, temp -1);
 	http_msg[temp-1] = '\0';
-	printf ("temp: %d %s \n",temp, http_msg);
 	
 
 	int how = tcph->th_off * 4;
-	char *http = (char *)(tcph + how);
-
-
+	char *http = (char *)(packet + iph->ip_hl*4 + how);
+	char *start;
+	// Check matching
+	if (strstr (http, http_req)){
+	  if (start = strstr (http, http_con)){
+	    print_matched (current, packet, RULE_HTTP, HTTP);
+	    printf ("Message: %s\n", http_msg);
+	  }
+	  else{
+	    print_unmatched (current, packet, RULE_HTTP);
+	  }
+	}
 
 
       }
@@ -353,7 +369,7 @@ struct rule_st *rule_match (int proto_type, const u_char *packet){
 	  char *message = parsed2 + 1;
 	  *(message+strlen(message)-1) = '\0';
 	  print_matched (current, packet, RULE_TCP,MSG);
-	  printf ("Message: %s\n",message);
+	  //printf ("Message: %s\n",message);
 	}
 	// tos
 	else if (!strcmp (parsed, "tos")){
@@ -366,7 +382,7 @@ struct rule_st *rule_match (int proto_type, const u_char *packet){
 	// len
 	else if (!strcmp (parsed, "len")){
 	  int len = atoi (parsed2);
-	  if (iph->ip_hl == len)
+	  if (iph->ip_hl*4 == len)
 	    print_matched (current, packet, RULE_TCP,LEN);
 	  else
 	    print_unmatched (current, packet, RULE_TCP);
@@ -406,12 +422,9 @@ struct rule_st *rule_match (int proto_type, const u_char *packet){
 	}
 
       }
-    
-      // Print Done!
-      
     }
     // Not Match
-    else{
+    if (matched_head == NULL){
       print_unmatched (current, packet, RULE_TCP);
     }
     
@@ -526,7 +539,7 @@ struct rule_st *rule_match (int proto_type, const u_char *packet){
 	// len
 	else if (!strcmp (parsed, "len")){
 	  int len = atoi (parsed2);
-	  if (iph->ip_hl == len)
+	  if (iph->ip_hl*4 == len)
 	    print_matched (current, packet, RULE_UDP,LEN);
 	  else
 	    print_unmatched (current, packet, RULE_UDP);
@@ -558,7 +571,7 @@ bool is_inside (const struct in_addr *addr, const struct in_addr *net, int bits)
 }
 
 void print_matched (struct rule_st *entry, const u_char *packet, int proto_type, int type){
-
+/*
   struct ip *iph = (struct ip *)packet;
   struct tcphdr *tcph;
   struct udphdr *udph;
@@ -571,7 +584,7 @@ void print_matched (struct rule_st *entry, const u_char *packet, int proto_type,
   printf ("====================\n");
   printf ("[IP header]\n");
   printf ("Version: %d\n",iph->ip_v);
-  printf ("Header Length: %d bytes\n",iph->ip_hl);
+  printf ("Header Length: %d bytes\n",iph->ip_hl*4);
   printf ("ToS: %d\n",iph->ip_tos);
   printf ("Fragment Offset: %d\n",iph->ip_off);
   printf ("Source: %s\n",inet_ntoa(iph->ip_src));
@@ -593,10 +606,11 @@ void print_matched (struct rule_st *entry, const u_char *packet, int proto_type,
     printf ("[TCP payload]\n");
   }
   printf ("====================\n");
+  */
 }
 
 void print_unmatched (struct rule_st *entry, const u_char *packet, int proto_type){
-
+/*
   struct ip *iph = (struct ip *)packet;
   struct tcphdr *tcph;
   struct udphdr *udph;
@@ -609,7 +623,7 @@ void print_unmatched (struct rule_st *entry, const u_char *packet, int proto_typ
   printf ("====================\n");
   printf ("[IP header]\n");
   printf ("Version: %d\n",iph->ip_v);
-  printf ("Header Length: %d bytes\n",iph->ip_hl);
+  printf ("Header Length: %d bytes\n",iph->ip_hl*4);
   printf ("ToS: %d\n",iph->ip_tos);
   printf ("Fragment Offset: %d\n",iph->ip_off);
   printf ("Source: %s\n",inet_ntoa(iph->ip_src));
@@ -631,6 +645,7 @@ void print_unmatched (struct rule_st *entry, const u_char *packet, int proto_typ
     printf ("[TCP payload]\n");
   }
   printf ("====================\n");
+  */
 }
 
 
@@ -659,6 +674,7 @@ int main(int argc, char **argv){
     struct rule_st *entry = (struct rule_st *)malloc (sizeof (struct rule_st));
     entry->original = pStr_cp;
     entry->next = NULL;
+    entry->matched_next = NULL;
 
     char *pch, *pch2, *temp;
 

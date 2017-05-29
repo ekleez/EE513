@@ -15,6 +15,7 @@ struct rule_st{
   char *rule;
 
   struct rule_st *next;
+  struct rule_st *matched_next;
 };
 
 enum rule_protocol{
