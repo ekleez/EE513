@@ -90,6 +90,14 @@ struct rule_st *rule_match (int proto_type, const u_char *packet){
 
     for (current = list_head; current != NULL; current = current->next){
 
+	    current->message = NULL;
+	    current->tos_flag = false;
+	    current->len_flag = false;
+	    current->offset_flag = false;
+	    current->seq_flag = false;
+	    current->ack_flag = false;
+	    current->flags_flag = false;
+
       if (strcmp (current->protocol, "tcp")){
 	if (strcmp (current->protocol, "http"))
 	  continue;
@@ -308,119 +316,251 @@ struct rule_st *rule_match (int proto_type, const u_char *packet){
       //printf ("rule : %s\n",current->original);
       // HTTP
       if (!strcmp(current->protocol,"http")){
-	// SubParsing
-	int temp;
-	char *find = strchr (current->rule, ':') + 1;
-	char *find2 = strchr (current->rule, ';');
-	temp = find2 - find - 1;
 
-	char http_req[temp];
-	strncpy (http_req, find+1, temp - 1);
-	http_req[temp - 1] = '\0';
+// Rule parsing Change
+	char copy[strlen (current->rule)+1];
+	strncpy (copy, current->rule, strlen(current->rule));
+	copy[strlen (current->rule)] = '\0';
+	char *ptr;
+	ptr = strtok (copy, ";");
+	bool message_flag = false;
+	bool all_pass = true;
 
-	find = strchr (find2, ':') + 1;
-	find2 = strchr (find, ';');
-	temp = find2 - find - 1;
+	if (ptr == NULL)
+	  ptr = copy;
+	do {
+		int len = strchr (ptr,':') - ptr;
+		char parsed[len +1];
+		int total_len = strlen (ptr);
+		int len2 = total_len - len;
+		char parsed2[len2+1];
+		strncpy (parsed2, ptr+ len+1,len2);
+		strncpy (parsed, ptr, len);
+		parsed2[len2] = '\0';
+		parsed[len] = '\0';
+		
+		// msg
+		if (!strcmp(parsed, "msg")){
+		  char *message = parsed2 + 1;
+		  *(message+strlen(message)-1) = '\0';
+		  //print_matched (current, packet, RULE_TCP,MSG);
+		  //printf ("Message: %s\n",message);
+		}
+		// tos
+		else if (!strcmp (parsed, "tos")){
+		  int tos = atoi (parsed2);
+		  if (iph->ip_tos != tos)
+		    all_pass = false;
+		  else
+		    current->tos_flag = true;
+		}
+		// len
+		else if (!strcmp (parsed, "len")){
+		  int len = atoi (parsed2);
+		  if (iph->ip_hl*4 != len)
+		    all_pass = false;
+		  else
+		    current->len_flag = true;
+		}
+		// offset
+		else if (!strcmp (parsed, "offset")){
+		  int offset = atoi (parsed2);
+		  if (iph->ip_off != offset)
+		    all_pass = false;
+		  else
+		    current->offset_flag = true;
+		}
+		// seq
+		else if (!strcmp (parsed, "seq")){
+		  int seq = atoi (parsed2);
+		  if (ntohl(tcph->th_seq) != seq)
+		    all_pass = false;
+		  else
+		    current->seq_flag = true;
+		}
+		// ack
+		else if (!strcmp (parsed, "ack")){
+		  int ack = atoi (parsed2);
+		  if (ntohl(tcph->th_ack) != ack)
+		    all_pass = false;
+		  else
+		    current->ack_flag = true;
+		}
+		// flags
+		else if (!strcmp (parsed, "flags")){
+		   int how_many = strlen(parsed2);
+		   char flag[how_many+1];
+		   strncpy (flag, parsed2, how_many);
+		   flag[how_many] = '\0';
 
-	char http_con[temp];
-	strncpy (http_con, find+1, temp -1);
-	http_con[temp-1] = '\0';
+		   if (strchr (flag, 'F')){
+		      if (!(tcph->th_flags & TH_FIN))
+			all_pass = false;
+		   }
+		   if (strchr (flag, 'S')){
+		     if (!(tcph->th_flags & TH_SYN))
+			all_pass = false;
+		   }
+		   if (strchr (flag, 'R')){
+		     if (!(tcph->th_flags & TH_RST))
+			all_pass = false;
+		   }
+		   if (strchr (flag, 'P')){
+		     if (!(tcph->th_flags & TH_PUSH))
+			all_pass = false;
+		   }
+		   if (strchr (flag, 'A')){
+		     if (!(tcph->th_flags & TH_ACK))
+			all_pass = false;
+		   }
+		   if (all_pass == true)
+		      current->flags_flag = true;
+		}
+		else if (!strcmp (parsed, "http_request")){
+		  char *request = parsed2 + 1;
+		  *(request+strlen(request)-1) = '\0';
+		  //printf ("%s\n",request);
+		  int how = tcph->th_off*4;
+		  char http_msg[strlen (request) + 1];
+		  strncpy (http_msg, request, strlen (request));
+		  http_msg[strlen (request)] = '\0';
+		  //printf ("%s\n",http_msg);
 
-	find = strchr (find2, ':') + 1;
-	find2 = strchr (find, ';');
-	temp = find2 - find - 1;
+		  char *http = (char *)(packet + iph->ip_hl*4 + how);
+		  if (!strstr(http, http_msg)){
+		    all_pass = false;
+		  }
+		}
+		else if (!strcmp (parsed, "content")){
+		  char *request = parsed2 + 1;
+		  *(request+strlen(request)-1) = '\0';
+		  //printf ("%s\n",request);
+		  char http_con[strlen (request) + 1];
+		  strncpy (http_con, request, strlen (request));
+		  http_con[strlen (request)] = '\0';
+		  char *http = (char *)(packet + iph->ip_hl*4 + tcph->th_off*4);
+		  if (strstr(http, http_con) == NULL)
+		    all_pass = false;
+		}
+		
+	}while (ptr = strtok (NULL, " ;"));
 
-	char http_msg[temp];
-	strncpy (http_msg, find+1, temp -1);
-	http_msg[temp-1] = '\0';
-	
-
-	int how = tcph->th_off * 4;
-	char *http = (char *)(packet + iph->ip_hl*4 + how);
-	char *start;
-	// Check matching
-	if (strstr (http, http_req)){
-	  if (start = strstr (http, http_con)){
-	    print_matched (current, packet, RULE_HTTP, HTTP);
-	    printf ("Message: %s\n", http_msg);
-	  }
-	  else{
-	    print_unmatched (current, packet, RULE_HTTP);
-	  }
-	}
+	if (all_pass)
+	  print_matched (current, packet, RULE_HTTP, MSG);
+	else
+	  print_unmatched (current, packet, RULE_HTTP);
 
 
       }
       // TCP
       else{
+// Rule parsing Change
+	char copy[strlen (current->rule)+1];
+	strncpy (copy, current->rule, strlen(current->rule));
+	copy[strlen (current->rule)] = '\0';
+	char *ptr;
+	ptr = strtok (copy, ";");
+	bool message_flag = false;
+	bool all_pass = true;
 
-	int len = strchr (current->rule,':') - current->rule;
-	char parsed[len +1];
-	int total_len = strlen (current->rule);
-	int len2 = total_len - len;
-	char parsed2[len2+1];
-	strncpy (parsed2, current->rule+ len+1,len2);
-	strncpy (parsed, current->rule, len);
-	parsed2[len2] = '\0';
-	parsed[len] = '\0';
-	
-	// msg
-	if (!strcmp(parsed, "msg")){
-	  char *message = parsed2 + 1;
-	  *(message+strlen(message)-1) = '\0';
-	  print_matched (current, packet, RULE_TCP,MSG);
-	  //printf ("Message: %s\n",message);
-	}
-	// tos
-	else if (!strcmp (parsed, "tos")){
-	  int tos = atoi (parsed2);
-	  if (iph->ip_tos == tos)
-	    print_matched (current, packet, RULE_TCP,TOS);
-	  else
-	    print_unmatched (current, packet, RULE_TCP);
-	}
-	// len
-	else if (!strcmp (parsed, "len")){
-	  int len = atoi (parsed2);
-	  if (iph->ip_hl*4 == len)
-	    print_matched (current, packet, RULE_TCP,LEN);
-	  else
-	    print_unmatched (current, packet, RULE_TCP);
-	}
-	// offset
-	else if (!strcmp (parsed, "offset")){
-	  int offset = atoi (parsed2);
-	  if (iph->ip_off == offset)
-	    print_matched (current, packet, RULE_TCP,OFFSET);
-	  else
-	    print_unmatched (current, packet, RULE_TCP);
-	}
-	// seq
-	else if (!strcmp (parsed, "seq")){
-	  int seq = atoi (parsed2);
-	  if (tcph->th_seq == seq)
-	    print_matched (current, packet, RULE_TCP, SEQ);
-	  else
-	    print_unmatched (current, packet, RULE_TCP);
-	}
-	// ack
-	else if (!strcmp (parsed, "ack")){
-	  int ack = atoi (parsed2);
-	  if (tcph->th_ack == ack)
-	    print_matched (current, packet, RULE_TCP, ACK);
-	  else
-	    print_unmatched (current, packet, RULE_TCP);
-	}
-	// flags
-	else if (!strcmp (parsed, "flags")){
-	  int flags = atoi (parsed2);
-	  // Flag numbering
-	  if (tcph->th_flags == flags)
-	    print_matched (current, packet, RULE_TCP, FLAGS);
-	  else
-	    print_unmatched (current, packet, RULE_TCP);
-	}
+	if (ptr == NULL)
+	  ptr = copy;
+	do {
 
+		int len = strchr (ptr,':') - ptr;
+		char parsed[len +1];
+		int total_len = strlen (ptr);
+		int len2 = total_len - len;
+		char parsed2[len2+1];
+		strncpy (parsed2, ptr+ len+1,len2);
+		strncpy (parsed, ptr, len);
+		parsed2[len2] = '\0';
+		parsed[len] = '\0';
+		
+		// msg
+		if (!strcmp(parsed, "msg")){
+		  char *message = parsed2 + 1;
+		  *(message+strlen(message)-1) = '\0';
+		  //print_matched (current, packet, RULE_TCP,MSG);
+		  //printf ("Message: %s\n",message);
+		}
+		// tos
+		else if (!strcmp (parsed, "tos")){
+		  int tos = atoi (parsed2);
+		  if (iph->ip_tos != tos){
+		    all_pass = false;
+		  }
+		  else
+		    current->tos_flag = true;
+		}
+		// len
+		else if (!strcmp (parsed, "len")){
+		  int len = atoi (parsed2);
+		  if (iph->ip_hl*4 != len)
+		    all_pass = false;
+		  else
+		    current->len_flag = true;
+		}
+		// offset
+		else if (!strcmp (parsed, "offset")){
+		  int offset = atoi (parsed2);
+		  if (iph->ip_off != offset)
+		    all_pass = false;
+		  else
+		    current->offset_flag = true;
+		}
+		// seq
+		else if (!strcmp (parsed, "seq")){
+		  int seq = atoi (parsed2);
+		  if (ntohl(tcph->th_seq) != seq)
+		    all_pass = false;
+		  else
+		    current->seq_flag = true;
+		}
+		// ack
+		else if (!strcmp (parsed, "ack")){
+		  int ack = atoi (parsed2);
+		  if (ntohl(tcph->th_ack) != ack)
+		    all_pass = false;
+		  else
+		    current->ack_flag = true;
+		}
+		// flags
+		else if (!strcmp (parsed, "flags")){
+		   int how_many = strlen(parsed2);
+		   char flag[how_many+1];
+		   strncpy (flag, parsed2, how_many);
+		   flag[how_many] = '\0';
+
+		   if (strchr (flag, 'F')){
+		      if (!(tcph->th_flags & TH_FIN))
+			all_pass = false;
+		   }
+		   if (strchr (flag, 'S')){
+		     if (!(tcph->th_flags & TH_SYN))
+			all_pass = false;
+		   }
+		   if (strchr (flag, 'R')){
+		     if (!(tcph->th_flags & TH_RST))
+			all_pass = false;
+		   }
+		   if (strchr (flag, 'P')){
+		     if (!(tcph->th_flags & TH_PUSH))
+			all_pass = false;
+		   }
+		   if (strchr (flag, 'A')){
+		     if (!(tcph->th_flags & TH_ACK))
+			all_pass = false;
+		   }
+		   if (all_pass)
+		      current->flags_flag = true;
+		}
+	}while ((ptr = strtok (NULL, " ;")) && all_pass);
+
+	if (all_pass)
+	  print_matched (current, packet, RULE_TCP, MSG);
+	else
+	  print_unmatched (current, packet, RULE_TCP);
       }
     }
     // Not Match
@@ -432,7 +572,16 @@ struct rule_st *rule_match (int proto_type, const u_char *packet){
   else if (proto_type == RULE_UDP){
     udph = (struct udphdr *)(packet + iph->ip_hl*4);
 
+
     for (current = list_head; current != NULL; current = current->next){
+
+	    current->message = NULL;
+	    current->tos_flag = false;
+	    current->len_flag = false;
+	    current->offset_flag = false;
+	    current->seq_flag = false;
+	    current->ack_flag = false;
+	    current->flags_flag = false;
 
       if (strcmp (current->protocol, "udp"))
 	continue;
@@ -506,57 +655,85 @@ struct rule_st *rule_match (int proto_type, const u_char *packet){
 	}
       }
       // Matched Occur !!
-      break;
+     
+      if (matched_head == NULL){
+        matched_head = current;
+	matched_tail = current;
+      }else{
+	matched_tail->matched_next = current;
+	matched_tail = current;
+      }  
     }
-    // Matched
-    if (current != NULL){
-/*
-	int len = strchr (current->rule,':') - current->rule;
-	char parsed[len +1];
-	int total_len = strlen (current->rule);
-	int len2 = total_len - len;
-	char parsed2[len2+1];
-	strncpy (parsed2, current->rule+ len+1,len2);
-	strncpy (parsed, current->rule, len);
-	parsed2[len2] = '\0';
-	parsed[len] = '\0';
-	
-	// msg
-	if (!strcmp(parsed, "msg")){
-	  char *message = parsed2 + 1;
-	  *(message+strlen(message)-1) = '\0';
-	  print_matched (current, packet, RULE_UDP,MSG);
-	  printf ("Message: %s\n",message);
+
+    current = NULL;
+    for (current = matched_head; current != NULL; current = current->matched_next){
+
+// Rule parsing Change
+	char copy[strlen (current->rule)+1];
+	strncpy (copy, current->rule, strlen(current->rule));
+	copy[strlen (current->rule)] = '\0';
+	char *ptr;
+	ptr = strtok (copy, ";");
+	bool message_flag = false;
+	bool all_pass = true;
+
+	if (ptr == NULL)
+	  ptr = copy;
+	do {
+	    // Matched
+		int len = strchr (ptr,':') - ptr;
+		char parsed[len +1];
+		int total_len = strlen (ptr);
+		int len2 = total_len - len;
+		char parsed2[len2+1];
+		strncpy (parsed2, ptr+ len+1,len2);
+		strncpy (parsed, ptr, len);
+		parsed2[len2] = '\0';
+		parsed[len] = '\0';
+		
+		// msg
+		if (!strcmp(parsed, "msg")){
+		  char *message = parsed2 + 1;
+		  *(message+strlen(message)-1) = '\0';
+		  //print_matched (current, packet, RULE_UDP,MSG);
+		  //printf ("Message: %s\n",message);
+		}
+		// tos
+		else if (!strcmp (parsed, "tos")){
+		  int tos = atoi (parsed2);
+		  if (iph->ip_tos != tos)
+		    all_pass = false;
+		  else
+		    current->tos_flag = true;
+		}
+		// len
+		else if (!strcmp (parsed, "len")){
+		  int len = atoi (parsed2);
+		  if (iph->ip_hl*4 != len)
+		    all_pass = false;
+		  else
+		    current->len_flag = true;
+		}
+		// offset
+		else if (!strcmp (parsed, "offset")){
+		  int offset = atoi (parsed2);
+		  if (iph->ip_off != offset)
+		    all_pass = false;
+		  else
+		    current->offset_flag = true;
+		}
+
+	} while ((ptr = strtok (NULL, " ;")) && all_pass);
+
+	if (all_pass){
+	  print_matched (current, packet, RULE_UDP, MSG);
+	}else{
+	  print_unmatched (current, packet, RULE_UDP);
 	}
-	// tos
-	else if (!strcmp (parsed, "tos")){
-	  int tos = atoi (parsed2);
-	  if (iph->ip_tos == tos)
-	    print_matched (current, packet, RULE_UDP,TOS);
-	  else
-	    print_unmatched (current, packet, RULE_UDP);
-	}
-	// len
-	else if (!strcmp (parsed, "len")){
-	  int len = atoi (parsed2);
-	  if (iph->ip_hl*4 == len)
-	    print_matched (current, packet, RULE_UDP,LEN);
-	  else
-	    print_unmatched (current, packet, RULE_UDP);
-	}
-	// offset
-	else if (!strcmp (parsed, "offset")){
-	  int offset = atoi (parsed2);
-	  if (iph->ip_off == offset)
-	    print_matched (current, packet, RULE_UDP,OFFSET);
-	  else
-	    print_unmatched (current, packet, RULE_UDP);
-	}
-*/
     }
     // Not matched
-    else{
- //     print_unmatched (current, packet, RULE_UDP);
+    if (matched_head == NULL){
+      print_unmatched (current, packet, RULE_UDP);
     }
   }
   // Not TCP and Not UDP
@@ -571,7 +748,9 @@ bool is_inside (const struct in_addr *addr, const struct in_addr *net, int bits)
 }
 
 void print_matched (struct rule_st *entry, const u_char *packet, int proto_type, int type){
-/*
+
+  if (entry == NULL)
+    return;
   struct ip *iph = (struct ip *)packet;
   struct tcphdr *tcph;
   struct udphdr *udph;
@@ -580,37 +759,143 @@ void print_matched (struct rule_st *entry, const u_char *packet, int proto_type,
   else
     tcph = (struct tcphdr *)(packet + iph->ip_hl*4);
 
+  if (udph == NULL && tcph == NULL)
+    return;
+
   printf ("Rule: %s\n",entry->original);
   printf ("====================\n");
   printf ("[IP header]\n");
   printf ("Version: %d\n",iph->ip_v);
-  printf ("Header Length: %d bytes\n",iph->ip_hl*4);
-  printf ("ToS: %d\n",iph->ip_tos);
-  printf ("Fragment Offset: %d\n",iph->ip_off);
+  //printf ("Header Length: %d bytes\n",iph->ip_hl*4);
+  print_ip_hl (entry, packet);
+  //printf ("ToS: %d\n",iph->ip_tos);
+  print_ip_tos (entry, packet);
+  //printf ("Fragment Offset: %d\n",iph->ip_off);
+  print_ip_offset (entry, packet);
   printf ("Source: %s\n",inet_ntoa(iph->ip_src));
   printf ("Destination: %s\n",inet_ntoa(iph->ip_dst));
   printf ("\n");
   if (proto_type == RULE_UDP){
     printf ("[UDP header]\n");
-    printf ("Source Port: %d\n",udph->uh_sport);
-    printf ("Destination Port: %d\n",udph->uh_dport);
+    printf ("Source Port: %d\n",ntohs(udph->uh_sport));
+    printf ("Destination Port: %d\n",ntohs(udph->uh_dport));
   }
-  else{
+  else if (proto_type == RULE_TCP){
     printf ("[TCP header]\n");
     printf ("Source Port: %d\n",ntohs(tcph->th_sport));
     printf ("Destination Port: %d\n",ntohs(tcph->th_dport));
-    printf ("Sequence Number: %d\n",tcph->th_seq);
-    printf ("Acknowledgement Number: %d\n",tcph->th_ack);
-    printf ("Flags: ");
+    //printf ("Sequence Number: %d\n",ntohl(tcph->th_seq));
+    print_tcp_seq (entry, packet);
+    //printf ("Acknowledgement Number: %d\n",ntohl(tcph->th_ack));
+    print_tcp_ack (entry, packet);
+    //printf ("Flags: ");
+    print_tcp_flags (entry, packet);
+
+    printf ("\n");
+    printf ("[TCP payload]\n");
+  }
+  else if (proto_type == RULE_HTTP){
+    printf ("[TCP header]\n");
+    printf ("Source Port: %d\n",ntohs(tcph->th_sport));
+    printf ("Destination Port: %d\n",ntohs(tcph->th_dport));
+    //printf ("Sequence Number: %d\n",ntohl(tcph->th_seq));
+    print_tcp_seq (entry, packet);
+    //printf ("Acknowledgement Number: %d\n",ntohl(tcph->th_ack));
+    print_tcp_ack (entry, packet);
+    //printf ("Flags: ");
+    print_tcp_flags (entry, packet);
+
     printf ("\n");
     printf ("[TCP payload]\n");
   }
   printf ("====================\n");
-  */
+  
 }
+
+void print_ip_hl (struct rule_st *entry, const u_char *packet){
+
+  struct ip *iph = (struct ip *)packet;
+  if (entry->len_flag){
+    printf ("Header Length: \033[32;1m %d \033[0m bytes\n",iph->ip_hl*4);
+  }
+  else{
+    printf ("Header Length: %d bytes\n",iph->ip_hl*4);
+  }
+
+}
+
+void print_ip_tos (struct rule_st *entry, const u_char *packet){
+
+  struct ip *iph = (struct ip *)packet;
+  if (entry->tos_flag){
+    printf ("ToS: \033[32;1m %d \033[0m\n",iph->ip_tos);
+  }
+  else{
+    printf ("ToS: %d \n",iph->ip_tos);
+  }
+
+}
+
+void print_ip_offset (struct rule_st *entry, const u_char *packet){
+
+  struct ip *iph = (struct ip *)packet;
+  if (entry->offset_flag){
+    printf ("Fragment Offset: \033[32;1m %d \033[0m\n",iph->ip_off);
+  }
+  else{
+    printf ("Fragment Offset: %d \n",iph->ip_off);
+  }
+
+}
+
+void print_tcp_seq (struct rule_st *entry, const u_char *packet){
+
+  struct ip *iph = (struct ip *)packet;
+  struct tcphdr *tcph = (struct tcphdr *)(packet + iph->ip_hl*4);
+
+  if (entry->seq_flag){
+    printf ("Sequence Number: \033[32;1m %d \033[0m \n",ntohl(tcph->th_seq));
+  }
+  else{
+    printf ("Sequence Number: %d \n",ntohl(tcph->th_seq));
+  }
+
+}
+
+void print_tcp_ack (struct rule_st *entry, const u_char *packet){
+
+  struct ip *iph = (struct ip *)packet;
+  struct tcphdr *tcph = (struct tcphdr *)(packet + iph->ip_hl*4);
+
+  if (entry->ack_flag){
+    printf ("Acknowledgement Number: \033[32;1m %d \033[0m\n",ntohl(tcph->th_ack));
+  }
+  else{
+    printf ("Acknowledgement Number: %d \n",ntohl(tcph->th_ack));
+  }
+
+}
+
+void print_tcp_flags (struct rule_st *entry, const u_char *packet){
+
+  struct ip *iph = (struct ip *)packet;
+  struct tcphdr *tcph = (struct tcphdr *)(packet + iph->ip_hl*4);
+
+  if (entry->flags_flag){
+    printf ("Flags: \033[32;1m %d \033[0m \n",tcph->th_flags);
+  }
+  else{
+    printf ("Flags: %d\n",tcph->th_flags);
+  }
+
+}
+
+
 
 void print_unmatched (struct rule_st *entry, const u_char *packet, int proto_type){
 /*
+  if (entry == NULL)
+    return;
   struct ip *iph = (struct ip *)packet;
   struct tcphdr *tcph;
   struct udphdr *udph;
@@ -619,7 +904,10 @@ void print_unmatched (struct rule_st *entry, const u_char *packet, int proto_typ
   else
     tcph = (struct tcphdr *)(packet + iph->ip_hl*4);
 
-  printf ("Rule: %s\n",entry->original);
+  if (udph == NULL & tcph == NULL)
+    return;
+
+  //printf ("Rule: %s\n",entry->original);
   printf ("====================\n");
   printf ("[IP header]\n");
   printf ("Version: %d\n",iph->ip_v);
@@ -631,15 +919,15 @@ void print_unmatched (struct rule_st *entry, const u_char *packet, int proto_typ
   printf ("\n");
   if (proto_type == RULE_UDP){
     printf ("[UDP header]\n");
-    printf ("Source Port: %d\n",udph->uh_sport);
-    printf ("Destination Port: %d\n",udph->uh_dport);
+    printf ("Source Port: %d\n",ntohs(udph->uh_sport));
+    printf ("Destination Port: %d\n",ntohs(udph->uh_dport));
   }
-  else{
+  else if (proto_type == RULE_TCP){
     printf ("[TCP header]\n");
     printf ("Source Port: %d\n",ntohs(tcph->th_sport));
     printf ("Destination Port: %d\n",ntohs(tcph->th_dport));
-    printf ("Sequence Number: %d\n",tcph->th_seq);
-    printf ("Acknowledgement Number: %d\n",tcph->th_ack);
+    printf ("Sequence Number: %d\n",ntohl(tcph->th_seq));
+    printf ("Acknowledgement Number: %d\n",ntohl(tcph->th_ack));
     printf ("Flags: ");
     printf ("\n");
     printf ("[TCP payload]\n");
@@ -675,6 +963,14 @@ int main(int argc, char **argv){
     entry->original = pStr_cp;
     entry->next = NULL;
     entry->matched_next = NULL;
+
+    entry->message = NULL;
+    entry->tos_flag = false;
+    entry->len_flag = false;
+    entry->offset_flag = false;
+    entry->seq_flag = false;
+    entry->ack_flag = false;
+    entry->flags_flag = false;
 
     char *pch, *pch2, *temp;
 
