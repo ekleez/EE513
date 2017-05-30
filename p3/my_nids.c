@@ -754,10 +754,28 @@ void print_matched (struct rule_st *entry, const u_char *packet, int proto_type,
   struct ip *iph = (struct ip *)packet;
   struct tcphdr *tcph;
   struct udphdr *udph;
+
+  bool ip_saddr = false;
+  bool ip_daddr = false;
+  bool tcp_sport = false;
+  bool tcp_dport = false;
+
+  char *temp1 = "any";
+
+  if (!strstr(entry->src_addr,temp1))
+    ip_saddr = true;
+  if (!strstr (entry->dst_addr, temp1))
+    ip_daddr = true;
+  if (!strstr (entry->src_port, temp1))
+    tcp_sport = true;
+  if (!strstr (entry->dst_port, temp1))
+    tcp_dport = true;
+
   if (proto_type == RULE_UDP)
     udph = (struct udphdr *)(packet + iph->ip_hl*4);
-  else
+  else{
     tcph = (struct tcphdr *)(packet + iph->ip_hl*4);
+  }
 
   if (udph == NULL && tcph == NULL)
     return;
@@ -772,8 +790,15 @@ void print_matched (struct rule_st *entry, const u_char *packet, int proto_type,
   print_ip_tos (entry, packet);
   //printf ("Fragment Offset: %d\n",iph->ip_off);
   print_ip_offset (entry, packet);
-  printf ("Source: %s\n",inet_ntoa(iph->ip_src));
-  printf ("Destination: %s\n",inet_ntoa(iph->ip_dst));
+  if (ip_saddr)
+    printf ("Source: \033[32;1m %s \033[0m\n",inet_ntoa(iph->ip_src));
+  else
+    printf ("Source: %s\n",inet_ntoa(iph->ip_src));
+
+  if (ip_daddr)
+    printf ("Destination: \033[32;1m %s \033[0m\n",inet_ntoa(iph->ip_dst));
+  else
+    printf ("Destination: %s\n",inet_ntoa(iph->ip_dst));
   printf ("\n");
   if (proto_type == RULE_UDP){
     printf ("[UDP header]\n");
@@ -782,8 +807,14 @@ void print_matched (struct rule_st *entry, const u_char *packet, int proto_type,
   }
   else if (proto_type == RULE_TCP){
     printf ("[TCP header]\n");
-    printf ("Source Port: %d\n",ntohs(tcph->th_sport));
-    printf ("Destination Port: %d\n",ntohs(tcph->th_dport));
+    if (tcp_sport)
+      printf ("Source Port: \033[32;1m %d \033[0m\n",ntohs(tcph->th_sport));
+    else
+      printf ("Source Port: %d\n",ntohs (tcph->th_sport));
+    if (tcp_dport)
+      printf ("Destination Port: \033[32;1m %d \033[0m\n",ntohs(tcph->th_dport));
+    else
+      printf ("Destination Port: %d\n",ntohs(tcph->th_dport));
     //printf ("Sequence Number: %d\n",ntohl(tcph->th_seq));
     print_tcp_seq (entry, packet);
     //printf ("Acknowledgement Number: %d\n",ntohl(tcph->th_ack));
@@ -792,12 +823,31 @@ void print_matched (struct rule_st *entry, const u_char *packet, int proto_type,
     print_tcp_flags (entry, packet);
 
     printf ("\n");
-    printf ("[TCP payload]\n");
+    //printf ("[TCP payload]\n");
   }
   else if (proto_type == RULE_HTTP){
+    char *http = (char *)(packet + iph->ip_hl*4 + tcph->th_off*4);
+    char *con = "content:";
+    int http_len = strlen (http);
+    char http_copy[http_len + 1];
+    strncpy (http_copy, http, http_len);
+    http_copy[http_len] = '\0';
+    char *content = strstr (entry->rule, con) + 9;
+    char *end = strchr (content, '"');
+    int len = end - content;
+    char content_real[len+1];
+    strncpy (content_real, content, len);
+    content_real[len] = '\0';
+
     printf ("[TCP header]\n");
-    printf ("Source Port: %d\n",ntohs(tcph->th_sport));
-    printf ("Destination Port: %d\n",ntohs(tcph->th_dport));
+    if (tcp_sport)
+      printf ("Source Port: \033[32;1m %d \033[0m\n",ntohs(tcph->th_sport));
+    else
+      printf ("Source Port: %d\n",ntohs (tcph->th_sport));
+    if (tcp_dport)
+      printf ("Destination Port: \033[32;1m %d \033[0m\n",ntohs(tcph->th_dport));
+    else
+      printf ("Destination Port: %d\n",ntohs(tcph->th_dport));
     //printf ("Sequence Number: %d\n",ntohl(tcph->th_seq));
     print_tcp_seq (entry, packet);
     //printf ("Acknowledgement Number: %d\n",ntohl(tcph->th_ack));
@@ -806,9 +856,41 @@ void print_matched (struct rule_st *entry, const u_char *packet, int proto_type,
     print_tcp_flags (entry, packet);
 
     printf ("\n");
-    printf ("[TCP payload]\n");
+    printf ("[HTTP payload]\n"); 
+
+    if (content = strstr (http_copy, content_real)){
+      char *ptr;
+      ptr = strchr (http_copy, ' ');
+      int len = ptr - http_copy;
+      char method[len+1];
+      strncpy (method, http_copy, len);
+      method[len] = '\0';
+      printf ("\033[32;1mHTTP Request: %s \033[0m\n",method);
+      printf ("\033[32;1mPayload: \033[0m");
+      int len2 = content - http_copy;
+      char before[len2+1];
+      strncpy (before, http_copy, len2);
+      before[len2] = '\0';
+
+      char *ending = "\r\n\r\n";
+      int len3 = strstr (http_copy, ending) - http_copy;
+
+      if (len3 > 0){
+	http_copy[len3] = '\n';
+	http_copy[len3+1] = '\0';
+      }
+
+      printf("%s",before);
+      printf ("\033[32;1m%s\033[0m",content_real);
+      printf ("%s",content + strlen (content_real));
+    }
+
   }
   printf ("====================\n");
+  if (entry->message != NULL){
+    printf ("Message: %s\n",entry->message);
+    printf ("====================\n");
+  }
   
 }
 
