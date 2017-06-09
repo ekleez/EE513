@@ -394,23 +394,28 @@ struct rule_st *rule_match (int proto_type, const u_char *packet){
 		   flag[how_many] = '\0';
 
 		   if (strchr (flag, 'F')){
-		      if (!(tcph->th_flags & TH_FIN))
+		      //if (!(tcph->th_flags & TH_FIN) || !(~TH_FIN & ~tcph->th_flags))
+		      if (!(tcph->th_flags - TH_FIN == 0))
 			all_pass = false;
 		   }
 		   if (strchr (flag, 'S')){
-		     if (!(tcph->th_flags & TH_SYN))
+		     //if (!(tcph->th_flags & TH_SYN) || !(~TH_SYN & ~tcph->th_flags))
+		     if (!(tcph->th_flags - TH_SYN == 0))
 			all_pass = false;
 		   }
 		   if (strchr (flag, 'R')){
-		     if (!(tcph->th_flags & TH_RST))
+		     //if (!(tcph->th_flags & TH_RST) || !(~TH_RST & ~tcph->th_flags))
+		     if (!(tcph->th_flags - TH_RST == 0))
 			all_pass = false;
 		   }
 		   if (strchr (flag, 'P')){
-		     if (!(tcph->th_flags & TH_PUSH))
+		     //if (!(tcph->th_flags & TH_PUSH) || !(~TH_PUSH & ~tcph->th_flags))
+		     if (!(tcph->th_flags - TH_PUSH == 0))
 			all_pass = false;
 		   }
 		   if (strchr (flag, 'A')){
-		     if (!(tcph->th_flags & TH_ACK))
+		     //if (!(tcph->th_flags & TH_ACK) || !(~TH_ACK & ~tcph->th_flags))
+		     if (!(tcph->th_flags - TH_ACK == 0))
 			all_pass = false;
 		   }
 		   if (all_pass == true)
@@ -533,23 +538,23 @@ struct rule_st *rule_match (int proto_type, const u_char *packet){
 		   flag[how_many] = '\0';
 
 		   if (strchr (flag, 'F')){
-		      if (!(tcph->th_flags & TH_FIN))
+		      if (!(tcph->th_flags - TH_FIN == 0))
 			all_pass = false;
 		   }
 		   if (strchr (flag, 'S')){
-		     if (!(tcph->th_flags & TH_SYN))
+		     if (!(tcph->th_flags - TH_SYN == 0))
 			all_pass = false;
 		   }
 		   if (strchr (flag, 'R')){
-		     if (!(tcph->th_flags & TH_RST))
+		     if (!(tcph->th_flags - TH_RST == 0))
 			all_pass = false;
 		   }
 		   if (strchr (flag, 'P')){
-		     if (!(tcph->th_flags & TH_PUSH))
+		     if (!(tcph->th_flags - TH_PUSH == 0))
 			all_pass = false;
 		   }
 		   if (strchr (flag, 'A')){
-		     if (!(tcph->th_flags & TH_ACK))
+		     if (!(tcph->th_flags - TH_ACK == 0))
 			all_pass = false;
 		   }
 		   if (all_pass)
@@ -910,10 +915,10 @@ void print_ip_tos (struct rule_st *entry, const u_char *packet){
 
   struct ip *iph = (struct ip *)packet;
   if (entry->tos_flag){
-    printf ("ToS: \033[32;1m %d \033[0m\n",iph->ip_tos);
+    printf ("ToS: \033[32;1m 0x%x \033[0m\n",iph->ip_tos);
   }
   else{
-    printf ("ToS: %d \n",iph->ip_tos);
+    printf ("ToS: 0x%x \n",iph->ip_tos);
   }
 
 }
@@ -936,10 +941,10 @@ void print_tcp_seq (struct rule_st *entry, const u_char *packet){
   struct tcphdr *tcph = (struct tcphdr *)(packet + iph->ip_hl*4);
 
   if (entry->seq_flag){
-    printf ("Sequence Number: \033[32;1m %d \033[0m \n",ntohl(tcph->th_seq));
+    printf ("Sequence Number: \033[32;1m %u \033[0m \n",ntohl(tcph->th_seq));
   }
   else{
-    printf ("Sequence Number: %d \n",ntohl(tcph->th_seq));
+    printf ("Sequence Number: %u \n",ntohl(tcph->th_seq));
   }
 
 }
@@ -950,10 +955,10 @@ void print_tcp_ack (struct rule_st *entry, const u_char *packet){
   struct tcphdr *tcph = (struct tcphdr *)(packet + iph->ip_hl*4);
 
   if (entry->ack_flag){
-    printf ("Acknowledgement Number: \033[32;1m %d \033[0m\n",ntohl(tcph->th_ack));
+    printf ("Acknowledgement Number: \033[32;1m %u \033[0m\n",ntohl(tcph->th_ack));
   }
   else{
-    printf ("Acknowledgement Number: %d \n",ntohl(tcph->th_ack));
+    printf ("Acknowledgement Number: %u \n",ntohl(tcph->th_ack));
   }
 
 }
@@ -963,11 +968,33 @@ void print_tcp_flags (struct rule_st *entry, const u_char *packet){
   struct ip *iph = (struct ip *)packet;
   struct tcphdr *tcph = (struct tcphdr *)(packet + iph->ip_hl*4);
 
+  bool syn_flag, fin_flag, rst_flag, push_flag, ack_flag;
+  syn_flag = fin_flag = rst_flag = push_flag = ack_flag = false;
+
+  if (tcph->th_flags & TH_FIN)
+    fin_flag = true;  
+  if (tcph->th_flags & TH_SYN)
+    syn_flag = true;
+  if (tcph->th_flags & TH_RST)
+    rst_flag = true;
+  if (tcph->th_flags & TH_PUSH)
+    push_flag = true;
+  if (tcph->th_flags & TH_ACK)
+    ack_flag = true;
+
   if (entry->flags_flag){
-    printf ("Flags: \033[32;1m %d \033[0m \n",tcph->th_flags);
+    printf ("Flags:\033[32;1m %s%s%s%s%s \033[0m \n",fin_flag?"FIN ":""
+							 ,syn_flag?"SYN ":""
+							 ,rst_flag?"RST ":""
+							 ,push_flag?"PSH ":""
+							 ,ack_flag?"ACK ":"");
   }
   else{
-    printf ("Flags: %d\n",tcph->th_flags);
+    printf ("Flags: %s%s%s%s%s \n",fin_flag?"FIN ":""
+							 ,syn_flag?"SYN ":""
+							 ,rst_flag?"RST ":""
+							 ,push_flag?"PSH ":""
+							 ,ack_flag?"ACK ":"");
   }
 
 }
@@ -1015,7 +1042,7 @@ void print_unmatched (struct rule_st *entry, const u_char *packet, int proto_typ
     printf ("[TCP payload]\n");
   }
   printf ("====================\n");
-  */
+*/
 }
 
 
