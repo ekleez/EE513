@@ -86,11 +86,16 @@ struct rule_st *rule_match (int proto_type, const u_char *packet){
   struct rule_st *current;
 
   if (proto_type == RULE_TCP){
+    //printf ("src addr : %s\n",inet_ntoa(iph->ip_src));
+    //printf ("dst addr : %s\n",inet_ntoa(iph->ip_dst));
     tcph = (struct tcphdr *)(packet + iph->ip_hl*4);
 
     for (current = list_head; current != NULL; current = current->next){
 
-	    current->message = NULL;
+	src_addr = inet_ntoa(iph->ip_src);
+	dst_addr = inet_ntoa(iph->ip_dst);
+
+	    //current->message = NULL;
 	    current->tos_flag = false;
 	    current->len_flag = false;
 	    current->offset_flag = false;
@@ -110,15 +115,25 @@ struct rule_st *rule_match (int proto_type, const u_char *packet){
 	if (pch != NULL){
 
 	  int len = pch - current->src_addr;
-	  char net[len];
+	  char net[len+1];
 	  strncpy (net, current->src_addr, len);
+	  net[len] = '\0';
 	  char *pref = pch + 1;
 	  int prefix = atoi (pref);
 
 	  struct in_addr *ip_addr, *net_addr;
 	  ip_addr = (struct in_addr *)malloc (sizeof (struct in_addr));
 	  net_addr = (struct in_addr *)malloc (sizeof (struct in_addr));
-	  inet_aton (src_addr, ip_addr);
+
+
+	  int len1 = strlen (inet_ntoa(iph->ip_src));
+	  char copy1[len1+1];
+	  strncpy (copy1, inet_ntoa(iph->ip_src), len1);
+	  copy1[len1] = '\0';
+
+
+	  inet_aton (copy1, ip_addr);
+
 	  inet_aton (net, net_addr);
 
 	  if (!is_inside (ip_addr, net_addr, prefix)){
@@ -127,13 +142,14 @@ struct rule_st *rule_match (int proto_type, const u_char *packet){
 	    continue;
 	  }
 
+
 	  free (ip_addr);
 	  free (net_addr);
 
 	}
 	// No Prefix
 	else{
-	  if (strcmp (current->src_addr, src_addr))
+	  if (strcmp (current->src_addr, inet_ntoa(iph->ip_src)))
 	    continue;
 	}
       }
@@ -145,15 +161,27 @@ struct rule_st *rule_match (int proto_type, const u_char *packet){
 	if (pch != NULL){
 
 	  int len = pch - current->dst_addr;
-	  char net[len];
+	  char net[len+1];
 	  strncpy (net, current->dst_addr, len);
+	  net[len]='\0';
 	  char *pref = pch + 1;
 	  int prefix = atoi (pref);
 
 	  struct in_addr *ip_addr, *net_addr;
 	  ip_addr = (struct in_addr *)malloc (sizeof (struct in_addr));
 	  net_addr = (struct in_addr *)malloc (sizeof (struct in_addr));
-	  inet_aton (dst_addr, ip_addr);
+
+	
+	  int len1 = strlen (inet_ntoa(iph->ip_dst));
+	  char copy1[len1+1];
+	  strncpy (copy1, inet_ntoa(iph->ip_dst), len1);
+	  copy1[len1] = '\0';
+
+
+	  inet_aton (copy1, ip_addr);
+
+  
+//	  inet_aton (dst_addr, ip_addr);
 	  inet_aton (net, net_addr);
 
 	  if (!is_inside (ip_addr, net_addr, prefix)){
@@ -167,7 +195,7 @@ struct rule_st *rule_match (int proto_type, const u_char *packet){
 	}
 	// No Prefix
 	else{
-	  if (strcmp (current->dst_addr, dst_addr))
+	  if (strcmp (current->dst_addr, inet_ntoa(iph->ip_dst)))
 	    continue;
 	}
       }
@@ -329,6 +357,8 @@ struct rule_st *rule_match (int proto_type, const u_char *packet){
 	if (ptr == NULL)
 	  ptr = copy;
 	do {
+		if ( ptr[0] == ' ')
+		    ptr = ptr + 1;
 		int len = strchr (ptr,':') - ptr;
 		char parsed[len +1];
 		int total_len = strlen (ptr);
@@ -343,6 +373,11 @@ struct rule_st *rule_match (int proto_type, const u_char *packet){
 		if (!strcmp(parsed, "msg")){
 		  char *message = parsed2 + 1;
 		  *(message+strlen(message)-1) = '\0';
+
+		  if (current->message == NULL){
+		    current->message = (char *)malloc (strlen(message));
+		    strncpy (current->message, message, strlen (message));
+		  }
 		  //print_matched (current, packet, RULE_TCP,MSG);
 		  //printf ("Message: %s\n",message);
 		}
@@ -393,31 +428,41 @@ struct rule_st *rule_match (int proto_type, const u_char *packet){
 		   strncpy (flag, parsed2, how_many);
 		   flag[how_many] = '\0';
 
+		   int sum = 0;
+
 		   if (strchr (flag, 'F')){
-		      //if (!(tcph->th_flags & TH_FIN) || !(~TH_FIN & ~tcph->th_flags))
-		      if (!(tcph->th_flags - TH_FIN == 0))
+		      if (!((tcph->th_flags & 0x01) == 0x01))
 			all_pass = false;
+		      else
+			sum += 0x01;
 		   }
 		   if (strchr (flag, 'S')){
-		     //if (!(tcph->th_flags & TH_SYN) || !(~TH_SYN & ~tcph->th_flags))
-		     if (!(tcph->th_flags - TH_SYN == 0))
+		     if (!((tcph->th_flags & 0x02) == 0x02))
 			all_pass = false;
+		     else
+			sum += 0x02;
 		   }
 		   if (strchr (flag, 'R')){
-		     //if (!(tcph->th_flags & TH_RST) || !(~TH_RST & ~tcph->th_flags))
-		     if (!(tcph->th_flags - TH_RST == 0))
+		     if (!((tcph->th_flags & 0x04) == 0x04))
 			all_pass = false;
+		     else
+			sum += 0x04;
 		   }
 		   if (strchr (flag, 'P')){
-		     //if (!(tcph->th_flags & TH_PUSH) || !(~TH_PUSH & ~tcph->th_flags))
-		     if (!(tcph->th_flags - TH_PUSH == 0))
+		     if (!((tcph->th_flags & 0x08) == 0x08))
 			all_pass = false;
+		     else
+			sum += 0x08;
 		   }
 		   if (strchr (flag, 'A')){
-		     //if (!(tcph->th_flags & TH_ACK) || !(~TH_ACK & ~tcph->th_flags))
-		     if (!(tcph->th_flags - TH_ACK == 0))
+		     if (!((tcph->th_flags & 0x10) == 0x10))
 			all_pass = false;
+		     else
+			sum += 0x10;
 		   }
+		   if (sum != tcph->th_flags)
+		       all_pass = false;
+
 		   if (all_pass == true)
 		      current->flags_flag = true;
 		}
@@ -448,7 +493,7 @@ struct rule_st *rule_match (int proto_type, const u_char *packet){
 		    all_pass = false;
 		}
 		
-	}while (ptr = strtok (NULL, " ;"));
+	}while (ptr = strtok (NULL, ";"));
 
 	if (all_pass)
 	  print_matched (current, packet, RULE_HTTP, MSG);
@@ -471,6 +516,8 @@ struct rule_st *rule_match (int proto_type, const u_char *packet){
 	if (ptr == NULL)
 	  ptr = copy;
 	do {
+		if ( ptr[0] == ' ')
+		    ptr = ptr + 1;
 
 		int len = strchr (ptr,':') - ptr;
 		char parsed[len +1];
@@ -488,6 +535,13 @@ struct rule_st *rule_match (int proto_type, const u_char *packet){
 		  *(message+strlen(message)-1) = '\0';
 		  //print_matched (current, packet, RULE_TCP,MSG);
 		  //printf ("Message: %s\n",message);
+
+
+		  if (current->message == NULL){
+		    current->message = (char *)malloc (strlen(message));
+		    strncpy (current->message, message, strlen (message));
+		  }
+
 		}
 		// tos
 		else if (!strcmp (parsed, "tos")){
@@ -537,36 +591,62 @@ struct rule_st *rule_match (int proto_type, const u_char *packet){
 		   strncpy (flag, parsed2, how_many);
 		   flag[how_many] = '\0';
 
+		   int sum = 0;
+
 		   if (strchr (flag, 'F')){
-		      if (!(tcph->th_flags - TH_FIN == 0))
+		      if (!((tcph->th_flags & 0x01) == 0x01))
 			all_pass = false;
+		      else
+			sum += 0x01;
 		   }
 		   if (strchr (flag, 'S')){
-		     if (!(tcph->th_flags - TH_SYN == 0))
+		     if (!((tcph->th_flags & 0x02) == 0x02))
 			all_pass = false;
+		     else
+			sum += 0x02;
 		   }
 		   if (strchr (flag, 'R')){
-		     if (!(tcph->th_flags - TH_RST == 0))
+		     if (!((tcph->th_flags & 0x04) == 0x04))
 			all_pass = false;
+		     else
+			sum += 0x04;
 		   }
 		   if (strchr (flag, 'P')){
-		     if (!(tcph->th_flags - TH_PUSH == 0))
+		     if (!((tcph->th_flags & 0x08) == 0x08))
 			all_pass = false;
+		     else
+			sum += 0x08;
 		   }
 		   if (strchr (flag, 'A')){
-		     if (!(tcph->th_flags - TH_ACK == 0))
+		     if (!((tcph->th_flags & 0x10) == 0x10))
 			all_pass = false;
+		     else
+			sum += 0x10;
 		   }
+		   if (sum != tcph->th_flags)
+		       all_pass = false;
+
 		   if (all_pass)
 		      current->flags_flag = true;
 		}
-	}while ((ptr = strtok (NULL, " ;")) && all_pass);
+	}while ((ptr = strtok (NULL, ";")) && all_pass);
 
 	if (all_pass)
 	  print_matched (current, packet, RULE_TCP, MSG);
 	else
 	  print_unmatched (current, packet, RULE_TCP);
       }
+    }
+    if (matched_head != NULL){
+	
+	current= matched_head;
+	while (current != NULL){
+	    struct rule_st *tmp1;
+	    tmp1 = current->matched_next;
+
+	    current->matched_next = NULL;
+	    current = tmp1;
+	}
     }
     // Not Match
     if (matched_head == NULL){
@@ -580,7 +660,7 @@ struct rule_st *rule_match (int proto_type, const u_char *packet){
 
     for (current = list_head; current != NULL; current = current->next){
 
-	    current->message = NULL;
+	    //current->message = NULL;
 	    current->tos_flag = false;
 	    current->len_flag = false;
 	    current->offset_flag = false;
@@ -606,7 +686,19 @@ struct rule_st *rule_match (int proto_type, const u_char *packet){
 	  struct in_addr *ip_addr, *net_addr;
 	  ip_addr = (struct in_addr *)malloc (sizeof (struct in_addr));
 	  net_addr = (struct in_addr *)malloc (sizeof (struct in_addr));
-	  inet_aton (src_addr, ip_addr);
+
+
+	  int len1 = strlen (inet_ntoa(iph->ip_src));
+	  char copy1[len1+1];
+	  strncpy (copy1, inet_ntoa(iph->ip_src), len1);
+	  copy1[len1] = '\0';
+
+
+	  inet_aton (copy1, ip_addr);
+
+
+
+	  //inet_aton (src_addr, ip_addr);
 	  inet_aton (net, net_addr);
 
 	  if (!is_inside (ip_addr, net_addr, prefix)){
@@ -621,7 +713,7 @@ struct rule_st *rule_match (int proto_type, const u_char *packet){
 	}
 	// No Prefix
 	else{
-	  if (strcmp (current->src_addr, src_addr))
+	  if (strcmp (current->src_addr, inet_ntoa(iph->ip_src)))
 	    continue;
 	}
       }
@@ -641,7 +733,17 @@ struct rule_st *rule_match (int proto_type, const u_char *packet){
 	  struct in_addr *ip_addr, *net_addr;
 	  ip_addr = (struct in_addr *)malloc (sizeof (struct in_addr));
 	  net_addr = (struct in_addr *)malloc (sizeof (struct in_addr));
-	  inet_aton (dst_addr, ip_addr);
+
+	  int len1 = strlen (inet_ntoa(iph->ip_dst));
+	  char copy1[len1+1];
+	  strncpy (copy1, inet_ntoa(iph->ip_dst), len1);
+	  copy1[len1] = '\0';
+
+
+	  inet_aton (copy1, ip_addr);
+
+
+	  //inet_aton (dst_addr, ip_addr);
 	  inet_aton (net, net_addr);
 
 	  if (!is_inside (ip_addr, net_addr, prefix)){
@@ -650,12 +752,13 @@ struct rule_st *rule_match (int proto_type, const u_char *packet){
 	    continue;
 	  }
 
+	  //printf ("HIHI: %s\n",inet_ntoa(*ip_addr));
 	  free (ip_addr);
 	  free (net_addr);
 	}
 	// No Prefix
 	else{
-	  if (strcmp (current->dst_addr, dst_addr))
+	  if (strcmp (current->dst_addr, inet_ntoa(iph->ip_dst)))
 	    continue;
 	}
       }
@@ -685,6 +788,9 @@ struct rule_st *rule_match (int proto_type, const u_char *packet){
 	if (ptr == NULL)
 	  ptr = copy;
 	do {
+		if ( ptr[0] == ' ')
+		    ptr = ptr + 1;
+
 	    // Matched
 		int len = strchr (ptr,':') - ptr;
 		char parsed[len +1];
@@ -702,6 +808,13 @@ struct rule_st *rule_match (int proto_type, const u_char *packet){
 		  *(message+strlen(message)-1) = '\0';
 		  //print_matched (current, packet, RULE_UDP,MSG);
 		  //printf ("Message: %s\n",message);
+
+
+		  if (current->message == NULL){
+		    current->message = (char *)malloc (strlen(message));
+		    strncpy (current->message, message, strlen (message));
+		  }
+
 		}
 		// tos
 		else if (!strcmp (parsed, "tos")){
@@ -728,7 +841,7 @@ struct rule_st *rule_match (int proto_type, const u_char *packet){
 		    current->offset_flag = true;
 		}
 
-	} while ((ptr = strtok (NULL, " ;")) && all_pass);
+	} while ((ptr = strtok (NULL, ";")) && all_pass);
 
 	if (all_pass){
 	  print_matched (current, packet, RULE_UDP, MSG);
@@ -736,6 +849,18 @@ struct rule_st *rule_match (int proto_type, const u_char *packet){
 	  print_unmatched (current, packet, RULE_UDP);
 	}
     }
+    if (matched_head != NULL){
+	
+	current= matched_head;
+	while (current != NULL){
+	    struct rule_st *tmp1;
+	    tmp1 = current->matched_next;
+
+	    current->matched_next = NULL;
+	    current = tmp1;
+	}
+    }
+
     // Not matched
     if (matched_head == NULL){
       print_unmatched (current, packet, RULE_UDP);
@@ -749,7 +874,18 @@ struct rule_st *rule_match (int proto_type, const u_char *packet){
 }
 
 bool is_inside (const struct in_addr *addr, const struct in_addr *net, int bits){
-  return !((addr->s_addr ^ net->s_addr) & htonl (0xFFFFFFFFu << (32 - bits)));
+
+  //return !((addr->s_addr ^ net->s_addr) & htonl (0xFFFFFFFFu << (32 - bits)));
+
+  u_long netmask = (0xFFFFFFFFu << (32 - bits)) & 0xFFFFFFFFu;
+
+  //printf ("real: %s %s \n",inet_ntoa(*addr),inet_ntoa(*net));
+
+  //printf ("a : %x, b : %x\n",ntohl(addr->s_addr), ntohl(net->s_addr));
+
+  //printf ("net : %x\n",netmask);
+
+  return ((ntohl(addr->s_addr) & netmask) == (ntohl(net->s_addr) & netmask));
 }
 
 void print_matched (struct rule_st *entry, const u_char *packet, int proto_type, int type){
@@ -767,13 +903,13 @@ void print_matched (struct rule_st *entry, const u_char *packet, int proto_type,
 
   char *temp1 = "any";
 
-  if (!strstr(entry->src_addr,temp1))
+  if (strstr(entry->src_addr,temp1) == NULL)
     ip_saddr = true;
-  if (!strstr (entry->dst_addr, temp1))
+  if (strstr (entry->dst_addr, temp1) == NULL)
     ip_daddr = true;
-  if (!strstr (entry->src_port, temp1))
+  if (strstr (entry->src_port, temp1) == NULL)
     tcp_sport = true;
-  if (!strstr (entry->dst_port, temp1))
+  if (strstr (entry->dst_port, temp1) == NULL)
     tcp_dport = true;
 
   if (proto_type == RULE_UDP)
@@ -785,8 +921,9 @@ void print_matched (struct rule_st *entry, const u_char *packet, int proto_type,
   if (udph == NULL && tcph == NULL)
     return;
 
-  printf ("Rule: %s\n",entry->original);
-  printf ("====================\n");
+  //printf ("****************************************\n");
+  printf ("Rule: %s",entry->original);
+  printf ("========================================\n");
   printf ("[IP header]\n");
   printf ("Version: %d\n",iph->ip_v);
   //printf ("Header Length: %d bytes\n",iph->ip_hl*4);
@@ -807,8 +944,14 @@ void print_matched (struct rule_st *entry, const u_char *packet, int proto_type,
   printf ("\n");
   if (proto_type == RULE_UDP){
     printf ("[UDP header]\n");
-    printf ("Source Port: %d\n",ntohs(udph->uh_sport));
-    printf ("Destination Port: %d\n",ntohs(udph->uh_dport));
+    if (tcp_sport)
+	printf ("Source Port: \033[32;1m %d \033[0m\n",ntohs(udph->uh_sport));
+    else
+	printf ("Source Port: %d\n",ntohs(udph->uh_sport));
+    if (tcp_dport)
+	printf ("Destination Port: \033[32;1m %d \033[0m\n",ntohs(udph->uh_dport));
+    else
+	printf ("Destination Port: %d\n",ntohs(udph->uh_dport));
   }
   else if (proto_type == RULE_TCP){
     printf ("[TCP header]\n");
@@ -828,10 +971,15 @@ void print_matched (struct rule_st *entry, const u_char *packet, int proto_type,
     print_tcp_flags (entry, packet);
 
     printf ("\n");
-    //printf ("[TCP payload]\n");
+    printf ("[TCP payload]\n");
+    char *tmp2 = (char *)(packet + iph->ip_hl*4 + tcph->th_off*4);
+    int tmp3 = strlen (tmp2);
+    *(tmp2 + tmp3 + 1) = '\0';
+    printf ("%s\n",tmp2);//packet + iph->ip_hl*4 + tcph->th_off*4);
   }
   else if (proto_type == RULE_HTTP){
     char *http = (char *)(packet + iph->ip_hl*4 + tcph->th_off*4);
+
     char *con = "content:";
     int http_len = strlen (http);
     char http_copy[http_len + 1];
@@ -861,6 +1009,7 @@ void print_matched (struct rule_st *entry, const u_char *packet, int proto_type,
     print_tcp_flags (entry, packet);
 
     printf ("\n");
+
     printf ("[HTTP payload]\n"); 
 
     if (content = strstr (http_copy, content_real)){
@@ -891,11 +1040,13 @@ void print_matched (struct rule_st *entry, const u_char *packet, int proto_type,
     }
 
   }
-  printf ("====================\n");
+  printf ("========================================\n");
   if (entry->message != NULL){
     printf ("Message: %s\n",entry->message);
-    printf ("====================\n");
+    printf ("========================================\n");
   }
+  //printf ("****************************************\n");
+  printf ("\n");
   
 }
 
@@ -971,15 +1122,15 @@ void print_tcp_flags (struct rule_st *entry, const u_char *packet){
   bool syn_flag, fin_flag, rst_flag, push_flag, ack_flag;
   syn_flag = fin_flag = rst_flag = push_flag = ack_flag = false;
 
-  if (tcph->th_flags & TH_FIN)
+  if (tcph->th_flags & 0x01)
     fin_flag = true;  
-  if (tcph->th_flags & TH_SYN)
+  if (tcph->th_flags & 0x02)
     syn_flag = true;
-  if (tcph->th_flags & TH_RST)
+  if (tcph->th_flags & 0x04)
     rst_flag = true;
-  if (tcph->th_flags & TH_PUSH)
+  if (tcph->th_flags & 0x08)
     push_flag = true;
-  if (tcph->th_flags & TH_ACK)
+  if (tcph->th_flags & 0x10)
     ack_flag = true;
 
   if (entry->flags_flag){
@@ -1061,7 +1212,7 @@ int main(int argc, char **argv){
   while (!feof (f)){
     pStr = fgets (strTemp, sizeof (strTemp), f);
    
-    if (pStr == NULL)
+    if (pStr == NULL || !strcmp (pStr, "\n"))
       break;
 
     // For original rule
